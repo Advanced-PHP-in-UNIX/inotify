@@ -5,9 +5,13 @@
 
 class Inotify
 {
-
+    // 当前inotify资源实例
     private $oInotifyFd = null;
+    // 使用的事件循环类型
     private $bEvent = false;
+    // 被添加的文件/文件夹...
+    private $aWatchedFiles = array();
+    // 事件类型数组
     private $aEventMaskValues = array(
         1 => array('IN_ACCESS','File was accessed (read)'),
         2 => array('IN_MODIFY','File was modified'),
@@ -58,13 +62,20 @@ class Inotify
      * @param : $sFile，要监听的文件夹或者文件
      * @param : $iEventType，要监听的事件类型，默认为IN_ALL_EVENTS
      * */
-    public function addFile2Watch($sFile, $iEventType = IN_ALL_EVENTS)
+    public function addFile2Watch($sFile, $iEventType, callable $fCallbackFunction, $aCbParam)
     {
         $iNotifyFd = $this->oInotifyFd;
         $iWatchFd = inotify_add_watch($iNotifyFd, $sFile, $iEventType);
         if (!$iWatchFd) {
             throw new Exception("将{$sFile}添加到{$iNotifyFd}失败.");
         }
+        $this->aWatchedFiles[$iWatchFd][$iEventType] = array(
+            'sFilePath' => $sFile,
+            'iWatchFd'  => $iWatchFd,
+            'fCallback' => $fCallbackFunction,
+            'aCbParam'  => $aCbParam,
+        );
+        return $this;
     }
 
     /*
@@ -83,10 +94,19 @@ class Inotify
         $aEventMaskValues = $this->aEventMaskValues;
         foreach($aInotifyEvents as $aInotifyEventValue) {
             $iMaskValue = $aInotifyEventValue['mask'];
+            $iWatchedFd = $aInotifyEventValue['wd'];
             foreach($aEventMaskValues as $iEventMaskValue => $aEventValueMask) {
                 //$iMaskValue & IN_MODIFY
                 if ($iMaskValue & $iEventMaskValue) {
-                    print_r($aEventValueMask);
+                    //echo "{$iMaskValue} | {$iWatchedFd}".PHP_EOL;
+                    if (isset($this->aWatchedFiles[$iWatchedFd])) {
+                        if (isset($this->aWatchedFiles[$iWatchedFd][$iMaskValue]) && is_callable($this->aWatchedFiles[$iWatchedFd][$iMaskValue]['fCallback'])) {
+                            $fCallback = $this->aWatchedFiles[$iWatchedFd][$iMaskValue]['fCallback'];
+                            $aCbParam = $this->aWatchedFiles[$iWatchedFd][$iMaskValue]['aCbParam'];
+                            //$fCallback();
+                            call_user_func($fCallback, $aCbParam);
+                        }
+                    }
                 }
             }
         }
